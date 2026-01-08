@@ -1,0 +1,167 @@
+import 'dart:async';
+import 'package:get/get.dart';
+import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'pomodoro_settings_controller.dart';
+
+class PomodoroController extends GetxController {
+  final settings = Get.find<PomodoroSettingsController>();
+
+  final isWorkSession = true.obs;
+  final isRunning = false.obs;
+  final remainingSeconds = 0.obs;
+
+  DateTime? _endTime;
+  Timer? _uiTicker;
+
+  final AudioPlayer _audio = AudioPlayer();
+  final FlutterLocalNotificationsPlugin notifications =
+      FlutterLocalNotificationsPlugin();
+
+  @override
+  void onInit() {
+    super.onInit();
+
+    _initNotifications();
+
+    // Initial reset (may use default values)
+    resetTimer();
+
+    // 🔑 FIX: Re-sync timer when settings load/change
+    ever(settings.workMinutes, (_) => _syncIfIdle());
+    ever(settings.breakMinutes, (_) => _syncIfIdle());
+  }
+
+  void _syncIfIdle() {
+    if (!isRunning.value) {
+      resetTimer();
+    }
+  }
+
+  Future<void> _initNotifications() async {
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    await notifications.initialize(
+      const InitializationSettings(android: android),
+    );
+  }
+
+  void startTimer() {
+    if (isRunning.value) return;
+
+    final totalSeconds =
+        (isWorkSession.value
+            ? settings.workMinutes.value
+            : settings.breakMinutes.value) *
+        60;
+
+    _endTime = DateTime.now().add(Duration(seconds: totalSeconds));
+    remainingSeconds.value = totalSeconds;
+    isRunning.value = true;
+
+    _scheduleNotification(totalSeconds);
+    _startTicker();
+  }
+
+  void _startTicker() {
+    _uiTicker?.cancel();
+    _uiTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      _syncTime();
+    });
+  }
+
+  void _syncTime() {
+    if (_endTime == null) return;
+
+    final diff = _endTime!.difference(DateTime.now()).inSeconds;
+
+    if (diff <= 0) {
+      _uiTicker?.cancel();
+      remainingSeconds.value = 0;
+      isRunning.value = false;
+      _onComplete();
+    } else {
+      remainingSeconds.value = diff;
+    }
+  }
+
+  void pauseTimer() {
+    _syncTime();
+    _uiTicker?.cancel();
+    isRunning.value = false;
+  }
+
+  void resetTimer() {
+    _uiTicker?.cancel();
+    isRunning.value = false;
+    _endTime = null;
+
+    remainingSeconds.value =
+        (isWorkSession.value
+            ? settings.workMinutes.value
+            : settings.breakMinutes.value) *
+        60;
+  }
+
+  Future<void> _onComplete() async {
+    await _audio.setReleaseMode(ReleaseMode.loop);
+    await _audio.play(AssetSource('alert.mp3'));
+
+    Get.dialog(
+      AlertDialog(
+        title: const Text("Time's Up"),
+        content: Text(
+          isWorkSession.value
+              ? "Work session completed! Take a break ☕"
+              : "Break over! Back to work 💪",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _audio.stop();
+              Get.back();
+              isWorkSession.toggle();
+              resetTimer();
+            },
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  Future<void> _scheduleNotification(int seconds) async {
+    await notifications.zonedSchedule(
+      0,
+      'Pomodoro Finished',
+      isWorkSession.value ? 'Time for a break ☕' : 'Back to work 💪',
+      tz.TZDateTime.now(tz.local).add(Duration(seconds: seconds)),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'pomodoro_channel',
+          'Pomodoro',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
+  String get formattedTime {
+    final m = (remainingSeconds.value ~/ 60).toString().padLeft(2, '0');
+    final s = (remainingSeconds.value % 60).toString().padLeft(2, '0');
+    return "$m:$s";
+  }
+
+  @override
+  void onClose() {
+    _uiTicker?.cancel();
+    _audio.dispose();
+    super.onClose();
+  }
+}

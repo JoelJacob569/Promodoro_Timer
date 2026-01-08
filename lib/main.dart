@@ -1,27 +1,16 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:get/get.dart';
 import 'package:timezone/data/latest.dart' as tz;
-import 'package:timezone/timezone.dart' as tz;
+import 'pomodoro_controller.dart';
+import 'pomodoro_settings_controller.dart';
+import 'settings.dart';
 
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
-
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Init timezone
   tz.initializeTimeZones();
 
-  // Init local notifications
-  const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-  const InitializationSettings initializationSettings = InitializationSettings(
-    android: initializationSettingsAndroid,
-  );
-
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  Get.put(PomodoroSettingsController());
+  Get.put(PomodoroController());
 
   runApp(const PomodoroApp());
 }
@@ -31,318 +20,189 @@ class PomodoroApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Pomodoro Timer',
+    return GetMaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
-        useMaterial3: true,
-      ),
       home: const PomodoroHomePage(),
     );
   }
 }
 
-class PomodoroHomePage extends StatefulWidget {
+class PomodoroHomePage extends StatelessWidget {
   const PomodoroHomePage({super.key});
 
-  @override
-  State<PomodoroHomePage> createState() => _PomodoroHomePageState();
-}
+  void _showCustomDialog(
+    PomodoroSettingsController settings,
+    PomodoroController controller,
+  ) {
+    int tempWork = settings.workMinutes.value;
+    int tempBreak = settings.breakMinutes.value;
 
-class _PomodoroHomePageState extends State<PomodoroHomePage>
-    with TickerProviderStateMixin {
-  int workMinutes = 25;
-  int breakMinutes = 5;
-
-  late int _remainingTime;
-  Timer? _timer;
-  bool _isRunning = false;
-  bool _isWorkSession = true;
-
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  late AnimationController _animationController;
-
-  @override
-  void initState() {
-    super.initState();
-    _remainingTime = workMinutes * 60;
-
-    _animationController = AnimationController(
-      vsync: this,
-      duration: Duration(minutes: workMinutes),
-    );
-  }
-
-  Future<void> _scheduleNotification(int seconds) async {
-    await flutterLocalNotificationsPlugin.zonedSchedule(
-      0,
-      'Pomodoro Finished 🎉',
-      _isWorkSession
-          ? 'Work session done! Take a break ☕'
-          : 'Break over! Back to work 💪',
-      tz.TZDateTime.now(tz.local).add(Duration(seconds: seconds)),
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'pomodoro_channel',
-          'Pomodoro Notifications',
-          importance: Importance.max,
-          priority: Priority.high,
-        ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-    );
-  }
-
-  void _startTimer() {
-    if (_isRunning) return;
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingTime > 0) {
-        setState(() {
-          _remainingTime--;
-          _animationController.forward();
-        });
-      } else {
-        _switchSession();
-      }
-    });
-
-    // 🔔 Schedule background notification
-    _scheduleNotification(_remainingTime);
-
-    setState(() {
-      _isRunning = true;
-    });
-  }
-
-  void _pauseTimer() {
-    _timer?.cancel();
-    _animationController.stop();
-    setState(() => _isRunning = false);
-  }
-
-  void _resetTimer() {
-    _timer?.cancel();
-    _animationController.reset();
-    setState(() {
-      _isRunning = false;
-      _remainingTime = (_isWorkSession ? workMinutes : breakMinutes) * 60;
-    });
-  }
-
-  Future<void> _switchSession() async {
-    _timer?.cancel();
-    _animationController.reset();
-
-    // Play alert sound
-    await _audioPlayer.play(AssetSource('alert.mp3'));
-
-    setState(() {
-      _isWorkSession = !_isWorkSession;
-      _remainingTime = (_isWorkSession ? workMinutes : breakMinutes) * 60;
-      _isRunning = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isWorkSession
-              ? "Break over! Back to work 💪"
-              : "Work session done! Take a break ☕",
-        ),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  String _formatTime(int seconds) {
-    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
-    final secs = (seconds % 60).toString().padLeft(2, '0');
-    return "$minutes:$secs";
-  }
-
-  void _showCustomSessionDialog() {
-    int newWork = workMinutes;
-    int newBreak = breakMinutes;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return AlertDialog(
-              title: const Text("Set Custom Durations"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Text("Work (min): "),
-                      Expanded(
-                        child: Slider(
-                          value: newWork.toDouble(),
-                          min: 5,
-                          max: 90, // ⬅️ increased to 90
-                          divisions: 17, // steps of 5
-                          label: "$newWork",
-                          onChanged: (val) {
-                            setStateDialog(() => newWork = val.toInt());
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      const Text("Break (min): "),
-                      Expanded(
-                        child: Slider(
-                          value: newBreak.toDouble(),
-                          min: 1,
-                          max: 30,
-                          divisions: 29,
-                          label: "$newBreak",
-                          onChanged: (val) {
-                            setStateDialog(() => newBreak = val.toInt());
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Cancel"),
-                ),
-                ElevatedButton(
-                  onPressed: () {
+    Get.dialog(
+      StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text("Custom Duration"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Work"),
+                Slider(
+                  value: tempWork.toDouble(),
+                  min: 1,
+                  max: settings.maxWorkMinutes.value.toDouble(),
+                  divisions: settings.workDivisions.value,
+                  label: "$tempWork",
+                  onChanged: (v) {
                     setState(() {
-                      workMinutes = newWork;
-                      breakMinutes = newBreak;
-                      _resetTimer();
-                      _animationController.duration = Duration(
-                        minutes: workMinutes,
-                      );
+                      tempWork = v.toInt();
                     });
-                    Navigator.pop(context);
                   },
-                  child: const Text("Save"),
+                ),
+                const SizedBox(height: 12),
+                const Text("Break"),
+                Slider(
+                  value: tempBreak.toDouble(),
+                  min: 1,
+                  max: settings.maxBreakMinutes.value.toDouble(),
+                  divisions: settings.breakDivisions.value,
+                  label: "$tempBreak",
+                  onChanged: (v) {
+                    setState(() {
+                      tempBreak = v.toInt();
+                    });
+                  },
                 ),
               ],
-            );
-          },
-        );
-      },
+            ),
+            actions: [
+              TextButton(onPressed: Get.back, child: const Text("Close")),
+              ElevatedButton(
+                onPressed: () {
+                  settings.setWorkMinutes(tempWork);
+                  settings.setBreakMinutes(tempBreak);
+                  controller.resetTimer();
+                  Get.back();
+                },
+                child: const Text("Save"),
+              ),
+            ],
+          );
+        },
+      ),
     );
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _animationController.dispose();
-    _audioPlayer.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final progress =
-        (_isWorkSession
-                ? (_remainingTime / (workMinutes * 60))
-                : (_remainingTime / (breakMinutes * 60)))
-            .clamp(0.0, 1.0);
+    final controller = Get.find<PomodoroController>();
+    final settings = Get.find<PomodoroSettingsController>();
 
-    return Scaffold(
-      backgroundColor: _isWorkSession
-          ? Colors.red.shade100
-          : Colors.green.shade100,
-      appBar: AppBar(
-        title: const Text(
-          "Pomodoro Timer",
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 24),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _isWorkSession ? "Work Session" : "Break Time",
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 20),
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 220,
-                  height: 220,
-                  child: CircularProgressIndicator(
-                    value: 1 - progress,
-                    strokeWidth: 12,
-                    backgroundColor: Colors.grey.shade300,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      _isWorkSession
-                          ? const Color.fromARGB(255, 255, 17, 0)
-                          : const Color.fromARGB(255, 68, 213, 73),
-                    ),
-                  ),
-                ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 500),
-                  child: Text(
-                    _formatTime(_remainingTime),
-                    key: ValueKey(_remainingTime),
-                    style: const TextStyle(
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 40),
-            Wrap(
-              spacing: 15,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _isRunning ? _pauseTimer : _startTimer,
-                  icon: Icon(_isRunning ? Icons.pause : Icons.play_arrow),
-                  label: Text(_isRunning ? "Pause" : "Start"),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _resetTimer,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text("Reset"),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            ElevatedButton(
-              onPressed: _showCustomSessionDialog,
-              child: Text("Custom"),
+    return Obx(() {
+      final totalSeconds =
+          (controller.isWorkSession.value
+              ? settings.workMinutes.value
+              : settings.breakMinutes.value) *
+          60;
+
+      final progress = controller.remainingSeconds.value / totalSeconds;
+
+      return Scaffold(
+        backgroundColor: controller.isWorkSession.value
+            ? Colors.red.shade100
+            : Colors.green.shade100,
+        appBar: AppBar(
+          title: const Text("Pomodoro Timer"),
+          centerTitle: true,
+          backgroundColor: Colors.transparent,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () => Get.to(const Settingspage()),
             ),
           ],
         ),
-      ),
-    );
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                controller.isWorkSession.value
+                    ? "Productivity Session"
+                    : "Break Time",
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 220,
+                    height: 220,
+                    child: CircularProgressIndicator(
+                      value: 1 - progress,
+                      strokeWidth: 12,
+                      backgroundColor: Colors.grey.shade300,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        controller.isWorkSession.value
+                            ? Colors.red
+                            : Colors.green,
+                      ),
+                    ),
+                  ),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 500),
+                    child: Text(
+                      controller.formattedTime,
+                      key: ValueKey(controller.formattedTime),
+                      style: const TextStyle(
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 30),
+              Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: controller.isRunning.value
+                            ? controller.pauseTimer
+                            : controller.startTimer,
+                        icon: Icon(
+                          controller.isRunning.value
+                              ? Icons.pause
+                              : Icons.play_arrow,
+                        ),
+                        label: Text(
+                          controller.isRunning.value ? "Pause" : "Start",
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: controller.resetTimer,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text("Reset"),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: () => _showCustomDialog(settings, controller),
+                    child: const Text("Custom"),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    });
   }
 }

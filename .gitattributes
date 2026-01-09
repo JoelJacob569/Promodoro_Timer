@@ -7,8 +7,8 @@ android/** linguist-vendored
 # iOS files
 ios/** linguist-vendored
 
-# # Web (optional – keep if you don't want JS/HTML counted)
-# web/** linguist-vendored
+# Web (optional – keep if you don't want JS/HTML counted)
+web/** linguist-vendored
 
-# # Force Dart as the main language
-# *.dart linguist-language=Dart
+# Force Dart as the main language
+*.dart linguist-language=Dart

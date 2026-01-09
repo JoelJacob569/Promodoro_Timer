@@ -12,6 +12,7 @@ class PomodoroController extends GetxController {
   final isWorkSession = true.obs;
   final isRunning = false.obs;
   final remainingSeconds = 0.obs;
+  bool _hasStarted = false;
 
   DateTime? _endTime;
   Timer? _uiTicker;
@@ -35,7 +36,8 @@ class PomodoroController extends GetxController {
   }
 
   void _syncIfIdle() {
-    if (!isRunning.value) {
+    // ✅ only reset if NEVER started
+    if (!isRunning.value && !_hasStarted) {
       resetTimer();
     }
   }
@@ -50,17 +52,14 @@ class PomodoroController extends GetxController {
   void startTimer() {
     if (isRunning.value) return;
 
-    final totalSeconds =
-        (isWorkSession.value
-            ? settings.workMinutes.value
-            : settings.breakMinutes.value) *
-        60;
+    _hasStarted = true; // ✅ mark session started
 
-    _endTime = DateTime.now().add(Duration(seconds: totalSeconds));
-    remainingSeconds.value = totalSeconds;
+    final secondsToRun = remainingSeconds.value;
+
+    _endTime = DateTime.now().add(Duration(seconds: secondsToRun));
     isRunning.value = true;
 
-    _scheduleNotification(totalSeconds);
+    _scheduleNotification(secondsToRun);
     _startTicker();
   }
 
@@ -88,14 +87,21 @@ class PomodoroController extends GetxController {
 
   void pauseTimer() {
     _syncTime();
+
     _uiTicker?.cancel();
     isRunning.value = false;
+
+    _endTime = null; // 🔑 this marks PAUSED state
+    notifications.cancelAll();
   }
 
   void resetTimer() {
     _uiTicker?.cancel();
+    notifications.cancelAll();
+
     isRunning.value = false;
     _endTime = null;
+    _hasStarted = false; // ✅ reset session state
 
     remainingSeconds.value =
         (isWorkSession.value
@@ -121,9 +127,15 @@ class PomodoroController extends GetxController {
             onPressed: () {
               _audio.stop();
               Get.back();
+
               isWorkSession.toggle();
+
+              _hasStarted = false;
+              _endTime = null;
+
               resetTimer();
             },
+
             child: const Text("OK"),
           ),
         ],

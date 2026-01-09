@@ -82,7 +82,7 @@ class _SettingspageState extends State<Settingspage> {
               SizedBox(height: 8),
               Text("Created by: Joel Jacob"),
               SizedBox(height: 4),
-              Text("Version: 1.1.0"),
+              Text("Version: 1.1.1"),
               SizedBox(height: 12),
               Text(
                 "A simple and elegant Pomodoro timer to help you stay focused and productive.",

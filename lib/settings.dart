@@ -108,7 +108,7 @@ class _SettingspageState extends State<Settingspage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Expanded(child: Text(label)),
+        Expanded(child: Text(label, style: TextStyle(fontSize: 16))),
         SizedBox(
           width: 90,
           height: 40,

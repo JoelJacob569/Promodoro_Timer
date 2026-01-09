@@ -22,6 +22,25 @@ class PomodoroApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return GetMaterialApp(
       debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        sliderTheme: SliderThemeData(
+          activeTrackColor: Colors.red[400],
+          inactiveTrackColor: Colors.red.shade100,
+          thumbColor: Colors.red[400],
+          overlayColor: Colors.red.withValues(alpha: 0.2),
+          valueIndicatorColor: Colors.red[400],
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size(140, 48),
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(50),
+            ),
+          ),
+        ),
+      ),
+
       home: const PomodoroHomePage(),
     );
   }
@@ -44,8 +63,9 @@ class PomodoroHomePage extends StatelessWidget {
             title: const Text("Custom Duration"),
             content: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Work"),
+                const Text("Productivity"),
                 Slider(
                   value: tempWork.toDouble(),
                   min: 1,
@@ -141,15 +161,22 @@ class PomodoroHomePage extends StatelessWidget {
                   SizedBox(
                     width: 220,
                     height: 220,
-                    child: CircularProgressIndicator(
-                      value: 1 - progress,
-                      strokeWidth: 12,
-                      backgroundColor: Colors.grey.shade300,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        controller.isWorkSession.value
-                            ? Colors.red
-                            : Colors.green,
-                      ),
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween<double>(begin: 1, end: 1 - progress),
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) {
+                        return CircularProgressIndicator(
+                          value: value,
+                          strokeWidth: 12,
+                          backgroundColor: Colors.grey.shade300,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            controller.isWorkSession.value
+                                ? Colors.red
+                                : Colors.green,
+                          ),
+                        );
+                      },
                     ),
                   ),
                   AnimatedSwitcher(

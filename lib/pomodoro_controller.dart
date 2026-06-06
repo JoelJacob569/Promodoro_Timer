@@ -6,7 +6,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'pomodoro_settings_controller.dart';
 
-class PomodoroController extends GetxController {
+class PomodoroController extends GetxController with WidgetsBindingObserver {
   final settings = Get.find<PomodoroSettingsController>();
 
   final isWorkSession = true.obs;
@@ -24,13 +24,14 @@ class PomodoroController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    WidgetsBinding.instance.addObserver(this);
 
     _initNotifications();
 
     // Initial reset (may use default values)
     resetTimer();
 
-    // 🔑 FIX: Re-sync timer when settings load/change
+    // ✅ only reset if never started
     ever(settings.workMinutes, (_) => _syncIfIdle());
     ever(settings.breakMinutes, (_) => _syncIfIdle());
   }
@@ -55,7 +56,6 @@ class PomodoroController extends GetxController {
     _hasStarted = true; // ✅ mark session started
 
     final secondsToRun = remainingSeconds.value;
-
     _endTime = DateTime.now().add(Duration(seconds: secondsToRun));
     isRunning.value = true;
 
@@ -66,28 +66,38 @@ class PomodoroController extends GetxController {
   void _startTicker() {
     _uiTicker?.cancel();
     _uiTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      _syncTime();
+      if (remainingSeconds.value <= 0) {
+        _uiTicker?.cancel();
+        return;
+      }
+
+      remainingSeconds.value -= 1;
+
+      if (remainingSeconds.value <= 0) {
+        _uiTicker?.cancel();
+        isRunning.value = false;
+        _endTime = null;
+        _onComplete();
+      }
     });
   }
 
-  void _syncTime() {
-    if (_endTime == null) return;
+  void _adjustTimerAfterResume() {
+    if (!isRunning.value || _endTime == null) return;
 
     final diff = _endTime!.difference(DateTime.now()).inSeconds;
-
     if (diff <= 0) {
       _uiTicker?.cancel();
       remainingSeconds.value = 0;
       isRunning.value = false;
+      _endTime = null;
       _onComplete();
-    } else {
+    } else if (diff != remainingSeconds.value) {
       remainingSeconds.value = diff;
     }
   }
 
   void pauseTimer() {
-    _syncTime();
-
     _uiTicker?.cancel();
     isRunning.value = false;
 
@@ -171,7 +181,15 @@ class PomodoroController extends GetxController {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _adjustTimerAfterResume();
+    }
+  }
+
+  @override
   void onClose() {
+    WidgetsBinding.instance.removeObserver(this);
     _uiTicker?.cancel();
     _audio.dispose();
     super.onClose();
